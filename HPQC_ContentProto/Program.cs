@@ -32,10 +32,13 @@ namespace HPQC_ContentProto
             {
                 Console.WriteLine("Could not establish a connection to HP QC " + ex.Message);
             }
-
-            ota.GetRequirementTypes2();
+            //ota.PlayWithFavorites();
+            ota.CreateFavoriteFilter();
+            //ota.GetRequirementTypes();
+            //int reqID = ota.GetRequirementTypeID("SyRs");
+            //Console.WriteLine("Requirement Type ID for SyRS is " + reqID);
             //ota.addBug2Project("Dummy Defect HP QC");
-            //ota.addRequirement2Project("Dummy SyRS HP QC");
+            //ota.addRequirement2Project("Another Dummy SyRS HP QC", "SyRS");
             ota.disconnect();
 
             Environment.Exit(0);
@@ -56,6 +59,7 @@ namespace HPQC_ContentProto
         {
             conn = new TDConnection();
             conn.InitConnectionEx(almURL);
+            Console.WriteLine("Connected to: " + almURL);
 
             //Authentication
             try
@@ -101,10 +105,11 @@ namespace HPQC_ContentProto
         {
             conn.Disconnect();
             conn.Logout();
+            conn.ReleaseConnection();
         }
 
         /* Get the requirement types */
-        public void GetRequirementTypes()
+        public void GetRequirementTypes2()
         {
             Customization almCustomization = (Customization)conn.Customization;
             almCustomization.Load();
@@ -125,7 +130,7 @@ namespace HPQC_ContentProto
 
         }
 
-        public void GetRequirementTypes2()
+        public void GetRequirementTypes()
         {
             ReqFactory reqFact = conn.ReqFactory;
             List reqTypes = reqFact.GetRequirementTypes();
@@ -137,11 +142,31 @@ namespace HPQC_ContentProto
             }
         }
 
+        /* Get the requirment type ID based upon the requirement name */
+        public int GetRequirementTypeID(String almReqTypeName)
+        {
+            ReqFactory reqFact = conn.ReqFactory;
+            List reqTypes = reqFact.GetRequirementTypes();
+
+            foreach (ReqType reqType in reqTypes)
+            {
+
+                if (String.Compare(reqType.Name.ToUpper(), almReqTypeName.ToUpper()) == 0)
+                {
+                    return reqType.ID;
+                }
+            }
+
+            return 999;
+        }
+
         /* Create a new requirement */
-        public void addRequirement2Project(String reqName)
+        public void addRequirement2Project(String reqName, String reqTypeName)
         {
             reqF = (ReqFactory)conn.ReqFactory;
             reqItem = (Req)reqF.AddItem(DBNull.Value);
+
+            int reqTypeID = GetRequirementTypeID(reqTypeName);
 
             DateTime saveNow = DateTime.Now;
 
@@ -149,7 +174,7 @@ namespace HPQC_ContentProto
             reqItem.Name = reqName;
             // TODO Must query HP QC project to get the actual REQ_TYPE - TPR_TYPE_ID to use reqItem.TypeId
             // Obsolete reqItem.Type = "System";
-            reqItem.TypeId = "101";  // We know the System requirement TypeId is 101 in the POC-ALM project.
+            reqItem.TypeId = reqTypeID.ToString();
             reqItem.Author = "dbarringer";
             reqItem.Priority = "2-Medium";
 
@@ -176,6 +201,75 @@ namespace HPQC_ContentProto
 
             //Post the bug
             bugItem.Post();
+        }
+
+        /* Create new filter for Requirements by Type */
+        public void FilterReqsByType(String reqTypeName)
+        {
+            reqF = (ReqFactory)conn.ReqFactory;
+            TDFilter ReqFilter = reqF.Filter;
+
+            int reqTypeID = GetRequirementTypeID(reqTypeName);
+
+            ReqFilter["RQ_TYPE_ID"] = reqTypeID.ToString();
+
+        }
+
+        /* Playing with Favorites to see what we get */
+        public void PlayWithFavorites()
+        {
+            FavoriteFactory favF = conn.GetCommonFavoriteFactory();
+            //Favorite favItem = favF.AddItem(DBNull.Value);
+
+            List favList = favF.NewList("");
+
+            foreach (Favorite fav in favList)
+            {
+                Console.WriteLine("Name: " + fav.Name);
+                Console.WriteLine("Module: " + fav.Module);
+                Console.WriteLine("Public: " + fav.Public);
+                Console.WriteLine("ParentID: " + fav.ParentId);
+                Console.WriteLine("FilterData: " + fav.FilterData);
+                Console.WriteLine("LayoutData: " + fav.LayoutData);
+            }
+        }
+
+        /* Create a Favorite filter */
+        public void CreateFavoriteFilter()
+        {
+            FavoriteFactory favF = conn.GetCommonFavoriteFactory();
+            TDFilter favFilter = favF.Filter;
+            favFilter["FAV_NAME"] = "\"All Defects\"";
+
+            List favsFiltered = favF.NewList(favFilter.Text);
+            Console.WriteLine("Number of Favorites Found: " + favsFiltered.Count);
+
+            FavoriteFolderFactory favFF = conn.GetCommonFavoriteFolderFactory();
+            List favFolders = favFF.NewList("");
+
+            foreach (FavoriteFolder favFolder in favFolders)
+            {
+                if (favFolder.Public && String.Compare(favFolder.Module, "3") == 0)
+                {
+                    Favorite fav = favFolder.FavoriteFactory.AddItem(DBNull.Value);
+
+                    fav.Name = "ALMPC Created Filter";
+                    fav.FilterData = "<Filter Entity=\"requirement\" KeepHierarchical=\"true\"><Where /><Sort /><Grouping /></Filter>";
+                    fav.LayoutData = "<?xml version=\"1.0\" encoding=\"utf - 16\"?><Layout><ViewLogicalName>TREE</ViewLogicalName><VisibleColumns><Column><EntityType>requirement</EntityType><PhysicalFieldName>RQ_REQ_NAME</PhysicalFieldName><Width> 200 </Width></Column><Column><EntityType>requirement</EntityType><PhysicalFieldName>RQ_REQ_ID</PhysicalFieldName><Width>100</Width></Column><Column><EntityType>requirement</EntityType><PhysicalFieldName>RQ_REQ_STATUS</PhysicalFieldName><Width>120</Width></Column><Column><EntityType>requirement</EntityType><PhysicalFieldName>RQ_TARGET_REL</PhysicalFieldName><Width>100</Width></Column><Column><EntityType>requirement</EntityType><PhysicalFieldName>RQ_REQ_AUTHOR</PhysicalFieldName><Width>100</Width></Column><Column><EntityType>requirement</EntityType><PhysicalFieldName>RQ_TARGET_RCYC</PhysicalFieldName><Width>100</Width></Column></VisibleColumns><AdditionalData></AdditionalData></Layout>";
+                    fav.ParentId = favFolder.ID;
+                    fav["FAV_IS_PUBLIC"] = "Y";
+                    fav["FAV_MODULE"] = 3; // Requirements module
+                    fav.Post();
+                    fav.Refresh();
+
+                    Console.WriteLine("Name: " + fav.Name);
+                    Console.WriteLine("Module: " + fav.Module);
+                    Console.WriteLine("Public: " + fav.Public);
+                    Console.WriteLine("ParentID: " + fav.ParentId);
+                    Console.WriteLine("FilterData: " + fav.FilterData);
+
+                }
+            }
         }
     }
 }
